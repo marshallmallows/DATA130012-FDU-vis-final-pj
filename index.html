@@ -1,0 +1,1025 @@
+<!-- Code from d3-graph-gallery.com -->
+<!DOCTYPE html>
+<head>
+    <meta charset="utf-8">
+    <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <!-- Load d3.js -->
+    <!-- <link rel="stylesheet" type="text/css" href="/d3.slider.css" media="screen" /> -->
+    <script src="/d3.v6.min.js"></script>
+    <script src="/d3-simple-slider.min.js"></script>
+    <!-- <link
+    rel="stylesheet"
+    href="/bootstrap.min.css"
+    integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
+    crossorigin="anonymous"
+    /> -->
+    
+    <style>
+        a:link, a:visited {
+            background-color:green;
+            color: white;
+            padding: 14px 25px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+        }
+        a:hover, a:active {
+            background-color: blue;
+        }
+    </style>
+    <style>
+
+        body {
+            font: 10px sans-serif;
+        }
+
+        .axis path,
+        .axis line,
+        .axis1 path,
+        .axis1 line {
+            fill: none;
+            stroke: #E6E7E8;
+            shape-rendering: crispEdges;
+        }
+
+        .x.axis path, .x.axis1 path {
+            display: none;
+        }
+
+        .line {
+            fill: none;
+            stroke-width: 1.5px;
+        }
+
+        .legend-box {
+            cursor: pointer;
+        }
+
+        #mouse-tracker {
+            stroke: #E6E7E8;
+            stroke-width: 1px;
+        }
+
+        .hover-line {
+            stroke: #E6E7E8;
+            fill: none;
+            stroke-width: 1px;
+            left: 10px;
+            shape-rendering: crispEdges;
+            opacity:0.06;
+        }
+
+        .hover-text {
+            stroke: none;
+            font-size: 30px;
+            font-weight: bold;
+            fill: #000000;
+        }
+
+        .tooltip {
+            font-weight: normal;
+        }
+
+        .brush .extent {
+            stroke: #FFF;
+            shape-rendering: crispEdges;
+        }
+
+    </style>
+</head>
+
+<body>
+    <div style="margin-left: 50px;" id="selection"></div>
+    <script>
+
+
+        dateForNow = "201301";
+        pollutantForNow = "PM2.5";
+
+        var polList = ["PM2.5","SO2","NO2"]
+        var dataTime = [];
+        for (var i=0;i<6;i++){
+            for(var j=0;j<12;j++){
+                dataTime.push(new Date(2013+i,j));
+            }
+        }
+        dataTime.push(new Date(2019,0))
+
+        function closureForDate(para){
+            dateForNow = para;
+        }
+
+        function closureForPollutant(para){
+            pollutantForNow = para;
+        }
+
+        var slider = d3
+        .sliderBottom()
+        .min(d3.min(dataTime))
+        .max(d3.max(dataTime))
+        .step(1000*60*60*24*31)
+        .displayValue(true)
+        .width(400)
+        .tickFormat(d3.timeFormat('%Y%m'))
+        // .tickValues(dataTime)
+        .default(new Date(2013, 0, 1))
+        .on('onchange', val => {
+            var newDate = String(val.getYear()+1900)+(val.getMonth()+1 > 9 ? "" : "0") +String(val.getMonth()+1)
+            newDate = (newDate =="201901" ? "201812": newDate)
+            closureForDate(newDate)
+            updateMap(dateForNow, pollutantForNow)
+            // d3.select('p#value-step').text(d3.format('.2%')(val));
+        });
+
+        var pollutantListener = d3.select("#selection")
+        .text("污染物(μg/m^3)")
+        .append("select")
+
+        pollutantListener.selectAll('option')
+        .data(polList)
+        .join('option')
+        .text(function(d){
+            return d;
+        })
+        .attr("value",function(d){
+            return d;
+        })
+
+        pollutantListener.on("change", function(event){
+            closureForPollutant(this.value);
+            updateMap(dateForNow, pollutantForNow);
+            d3.select("#legend1")
+            .remove()
+            setLegend1(pollutantForNow)
+        })
+
+
+        // The svg
+        var width = 1500,
+            height = 750;
+        
+        var svg = d3.select("body")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("id", "mySvg");
+        
+        
+        // Map and projection
+        var projection = d3.geoMercator()
+            .center([107, 47])                // GPS of location to zoom on
+            .scale(400)                       // This is like the zoom
+            .translate([ 300, 75])
+        
+        var path = d3.geoPath().projection(projection)
+    
+        var myColorForPM = d3.scaleLinear()
+        .domain([0, 200])
+        .range(["yellow", "red"])
+        
+        var myColorForNO2 = d3.scaleLinear()
+        .domain([0, 100])
+        .range(["yellow", "red"])
+
+        var myColorForSO2 = d3.scaleLinear()
+        .domain([0, 100])
+        .range(["yellow", "red"])
+
+        // load the data of pollutions
+        // var pollution = [];
+
+        
+        // d3.csv("/pollution data/201301/CN-Reanalysis-daily-2013010100.csv")
+        // .then(function(csvdata){
+        //     // for(var i=0;i<csvdata.length;i++){
+                
+        //     //     temp = {"PM2.5": +csvdata[i]["PM2.5(微克每立方米)"], "PM10": +csvdata[i][" PM10(微克每立方米)"],
+        //     //             "SO2": +csvdata[i][" SO2(微克每立方米)"], "NO2": +csvdata[i][" NO2(微克每立方米)"],
+        //     //             "CO": +csvdata[i][" CO(毫克每立方米)"], "O3": +csvdata[i][" O3(微克每立方米)"],
+        //     //             "U": +csvdata[i][" U(m/s)"], "V": +csvdata[i][" V(m/s)"],
+        //     //             "Temp": +csvdata[i][" TEMP(K)"], "RH(%)": +csvdata[i][" RH(%)"],
+        //     //             "PSFC(Pa)": +csvdata[i][" PSFC(Pa)"], "pos": [+csvdata[i][" lon"], +csvdata[i][" lat"]]
+        //     //         };
+        //     //     pollution.push(temp)
+        //     console.log(csvdata)
+            
+        //     // }
+
+        //     // var rects = svg.append("g")
+        //     // .attr("class", "point")
+        //     // .selectAll("rect")
+        //     // .data(pollution)
+        //     // .join("rect")
+        //     // .attr("width", 2.2)
+        //     // .attr("height", 2.2)
+        //     // .attr("x", function(d) {return projection(d.pos)[0]-1.1;})
+        //     // .attr("y", function(d) {return projection(d.pos)[1]-1.1;})
+        //     // .attr("fill", function(d) {return myColor(d["PM2.5"]);})
+        // })
+        // queue().defer()
+        var geodata = [];
+        // 视图3的数据
+        var monthDays = [31,28,31,30,31,30,31,31,30,31,30,31];
+        // Load external data and boot
+        d3.json("/chinaMapWithPollutionData2.json").then(function(data){
+            for(var i=0;i<data.features.length;i+=1){
+                // console.log(data.features[i])
+                geodata.push(data.features[i])
+                var prov = data.features[i].properties
+                var temp = {}
+                for(var j=2013;j<2019;j++){
+                    var x=0,y=0,z=0;
+                    for(var k=1;k<13;k++){
+                        month = String(j)+(k > 9 ? "" : "0")+String(k);
+                        x += prov.pollution[month]["PM2.5"]*monthDays[k-1]
+                        y += prov.pollution[month]["SO2"]*monthDays[k-1]
+                        z += prov.pollution[month]["NO2"]*monthDays[k-1]
+                    }
+                    temp[String(j)] = {"PM2.5":+((x/365).toFixed(2)),"SO2":+((y/365).toFixed(2)),"NO2":+((z/365).toFixed(2))}
+                }
+            }
+            // updateMap("20130101","PM2.5");
+            myMap = svg.append("g")
+                .attr("id", "myMap")
+                .selectAll("path")
+                .data(data.features)
+                .join("path")
+                .attr("fill", function(d){
+                    return myColorForPM(d.properties.pollution["201301"]["PM2.5"])
+                })
+                .attr("d", path)
+                .style("stroke", "black")
+                .style("stroke-width", 1)
+                .on("click", click)
+                .on("mouseover",function(d,i){
+
+                d3.select(this)
+                    .attr("fill","grey");
+                })
+                .on("mouseout",function(d,i){
+                d3.select(this)
+                    .attr("fill",function(d){
+                    return myColorForPM(d.properties.pollution["201301"]["PM2.5"])
+                });
+                })
+                .append("title")
+                .text(function(d) { 
+                    return d.properties.name + "\n PM2.5:  " + d.properties.pollution["201301"]["PM2.5"];
+                 });
+
+            
+
+            d3.select("svg")
+            .append('g')
+            .attr("id", "slider")
+            .attr('transform', 'translate(80,340)')
+            .call(slider);
+        })
+
+        function updateMap(date,pollutant){
+            // Draw the map
+            svg.select("#myMap")
+            .remove()
+
+            myMap = svg.append("g")
+                .attr("id", "myMap")
+                .selectAll("path")
+                .data(geodata)
+                .join("path")
+                .attr("fill", function(d){
+                    if (pollutant=="PM2.5"){
+                        return myColorForPM(d.properties.pollution[date][pollutant])
+                    }else if(pollutant=="NO2"){
+                        return myColorForNO2(d.properties.pollution[date][pollutant])
+                    }else{
+                        return myColorForSO2(d.properties.pollution[date][pollutant])
+                    }
+                })
+                .attr("d", path)
+                .style("stroke", "black")
+                .style("stroke-width", 1)
+                .on("click", click)
+                .on("mouseover",function(d,i){
+                    d3.select(this)
+                    .attr("fill","grey");
+                })
+                .on("mouseout",function(d,i){
+                    d3.select(this)
+                    .attr("fill", function(d){
+                        if (pollutant=="PM2.5"){
+                            return myColorForPM(d.properties.pollution[date][pollutant])
+                        }else if(pollutant=="NO2"){
+                            return myColorForNO2(d.properties.pollution[date][pollutant])
+                        }else{
+                            return myColorForSO2(d.properties.pollution[date][pollutant])
+                        }
+                    })
+                })
+                .append("title")
+                .text(function(d) { 
+                    return d.properties.name + "\n" + pollutant + ":  "+d.properties.pollution[date][pollutant];
+                 });
+        }
+
+
+        function click(event, d){
+            previousTip = d3.select("#tip")
+            if (previousTip){
+                previousTip.remove()
+            }
+            d3.select("#myMap")
+            .append("text")
+            .attr("id","tip")
+            .text("已选中："+d.properties.name)
+            .attr("transform","translate(170,40)")
+            .attr("font-size", "15px")
+            // .attr("text-anchor", "middle")
+            // .style("textAlign","middle")
+
+            d3.select("#linechart")
+            .remove()
+            getLineGraph(d.properties.name)
+
+            d3.select("#barchart")
+            .remove()
+            getBarChart(d.properties.name)
+        }
+
+        function setLegend1(pol){
+            var legendGroup = svg.append('g')
+        .attr("id", "legend1")
+        .attr("transform","translate(0,20)")
+
+        var legend = legendGroup.append('defs')
+            .append('linearGradient')
+            .attr('id', 'Legend')
+            .attr('x1', '0%')
+            .attr('y1', '100%')
+            .attr('x2', '0%')
+            .attr('y2', '0%')
+            .attr('spreadMethod', 'pad')
+
+        legend.selectAll("stop")
+            .data([
+                {offset: "0%", color: "yellow"},
+                {offset: "100%", color: "red"}
+            ])
+            .enter().append("stop")
+            .attr("offset", function(d) { return d.offset; })
+            .attr("stop-color", function(d) { return d.color; });
+
+        legendGroup.append('rect')
+            .attr('width', 20)
+            .attr('height', 180)
+            .style('fill', 'url(#Legend)')
+            .attr('transform', 'translate(500, 0)')
+
+        var maxiy = pol=="PM2.5"?200:100
+        var scale = d3.scaleLinear()
+            .domain([0, maxiy])
+            .range([180, 0])
+
+        var axis = d3.axisRight()
+            .scale(scale)
+            .ticks(10)
+
+        legendGroup.append('g')
+            .attr('transform', 'translate(520, 0)')
+            .call(axis)
+            .append('text')
+            .attr('y', -20)
+            .attr('x', 0)
+            .attr('dy', '.71em')
+            .style('text-anchor', 'start')
+            .text('μg/m^3')
+            .style("fill", "Black")
+        }
+        setLegend1("PM2.5")
+        // 第二个视图
+
+        var marginForLineChart = {top: 380, right: 200, bottom: 100, left: 50},
+        marginForLineChart2 = { top: 240, right: 10, bottom: 20, left: 40 },
+        widthForLineChart = 1400 - marginForLineChart.left - marginForLineChart.right,
+        heightForLineChart = 300,
+        heightForLineChart2 = 24;
+
+        var parseDate = d3.timeParse("%Y%m%d");
+        var bisectDate = d3.bisector(function(d) { return d.date; }).left;
+
+        var xScale = d3.scaleTime()
+                .range([0, widthForLineChart]),
+
+            xScale2 = d3.scaleTime()
+                .range([0, widthForLineChart]);
+
+        var yScale = d3.scaleLinear() 
+            .range([heightForLineChart, 0]);
+
+
+        var color = d3.scaleOrdinal().range(["#48A36D","#7EC4CF", "#F2DE8A"]);
+
+        var xAxis = d3.axisBottom(xScale),
+            xAxis2 = d3.axisBottom(xScale2);
+
+        var yAxis = d3.axisLeft(yScale);
+
+        var lineGenerator = d3.line()
+            .curve(d3.curveBasis)
+            .x(function(d) { 
+                return xScale(d.date); })
+            .y(function(d) { 
+                return yScale(d.rating); })
+            .defined(function(d) { return d.rating; });
+
+        var maxY;
+
+        var PMChosen = true, SO2Chosen = true, NO2Chosen = true;
+        function closureForPM(value){
+            PMChosen = value
+        }
+        function closureForSO2(value){
+            SO2Chosen = value
+        }
+        function closureForNO2(value){
+            NO2Chosen = value
+        }
+        // var view2 = d3.select("#mySvg")
+        //     .append("g")
+        //     .attr("id","linechart")
+        //     .attr("width", widthForLineChart + marginForLineChart.left + marginForLineChart.right)
+        //     .attr("height", 500)
+        //     .attr("transform", "translate(" + marginForLineChart.left + "," + marginForLineChart.top + ")");
+
+
+        // view2.append("rect")
+        //     .attr("width", widthForLineChart)
+        //     .attr("height", heightForLineChart)
+        //     .attr("x", 0)
+        //     .attr("y", 0)
+        //     .attr("id", "mouse-tracker")
+        //     .style("fill", "white");
+
+
+        // var context = view2.append("g")
+        //     .attr("transform", "translate(" + 0 + "," + 330 + ")")
+        //     .attr("class", "context")
+        //     .attr("width", widthForLineChart)
+
+        // view2.append("defs")
+        //     .append("clipPath")
+        //     .attr("id", "clip")
+        //     .append("rect")
+        //     .attr("width", widthForLineChart)
+        //     .attr("height", heightForLineChart);
+
+        getLineGraph()
+
+        function getLineGraph(name="全国"){
+            d3.csv("provincedata/"+name+".csv").then(function(data) {
+            color.domain(["PM2.5","SO2","NO2"]);
+
+            var view2 = d3.select("#mySvg")
+            .append("g")
+            .attr("id","linechart")
+            .attr("width", widthForLineChart + marginForLineChart.left + marginForLineChart.right)
+            .attr("height", 500)
+            .attr("transform", "translate(" + marginForLineChart.left + "," + marginForLineChart.top + ")");
+
+            var domesticButton = view2.append("g")
+                .attr("id","button")
+                .attr("cursor", "pointer")
+                .on("click", function(event,d){
+                    previousTip = d3.select("#tip")
+                if (previousTip){
+                    previousTip.remove()
+                }
+
+                d3.select("#linechart")
+                .remove()
+                getLineGraph()
+
+                d3.select("#barchart")
+                .remove()
+                getBarChart()
+                })
+
+                domesticButton.append("rect")
+                .attr("width", 100)
+                .attr("height", 50)
+                .attr("x", 1210)
+                .attr("y", 170)
+                .attr("rx", 15)
+                .attr("ry", 15)
+                .attr("fill", "blue")
+                .attr("stroke","pink")
+                .attr("id", "default-button")
+                .attr("stroke-width", 5)
+                .attr("fill-opacity", 0.1)
+                .attr("stroke-opacity", 0.9)
+
+                domesticButton.append("text")
+                .text("恢复到全国数据")
+                .attr("font-size", "12px")
+                .attr("x", 1217)
+                .attr("y", 198)
+
+            view2.append("rect")
+                .attr("width", widthForLineChart)
+                .attr("height", heightForLineChart)
+                .attr("x", 0)
+                .attr("y", 0)
+                .attr("id", "mouse-tracker")
+                .style("fill", "white");
+
+
+            var context = view2.append("g")
+                .attr("transform", "translate(" + 0 + "," + 330 + ")")
+                .attr("class", "context")
+                .attr("width", widthForLineChart)
+
+            view2.append("defs")
+                .append("clipPath")
+                .attr("id", "clip")
+                .append("rect")
+                .attr("width", widthForLineChart)
+                .attr("height", heightForLineChart);
+
+            data.forEach(function(d) {
+                d.date = parseDate(d.date);
+            });
+
+            var categories = color.domain().map(function(name) {
+
+                return {
+                    name: name,
+                    values: data.map(function(d) {
+                        return {
+                            date: d.date,
+                            rating: +(d[name]),
+                        };
+                    }),
+                    //visible: (name === "Unemployment" ? true : false)
+                };
+            });
+            xScale.domain(d3.extent(data, function(d) { 
+                return d.date; }));
+                
+
+            
+            maxY = findMaxY(categories);
+            if (maxY==null){
+                yScale.domain([0, 100]);
+            }
+            else{
+                yScale.domain([0,maxY]);
+            }
+            view2.select(".y.axis")
+                .transition()
+                .call(yAxis);
+
+            // issue.select("path")
+            //     .transition()
+            //     .attr("d", function(d){
+            //         if (d.name == "PM2.5"){
+            //             return PMChosen ? lineGenerator(d.values) : null;
+            //         }else if(d.name == "SO2"){
+            //             return SO2Chosen ? lineGenerator(d.values) : null;
+            //         }else{
+            //             return NO2Chosen ? lineGenerator(d.values) : null;
+            //         }
+            //     })
+            
+            xScale2.domain(xScale.domain());
+
+            var brush = d3.brushX(xScale2)
+                .extent([[0,0],[1150,24]])
+                .on("brush", brushed);
+
+            context.append("g")
+                .attr("class", "x axis1")
+                .attr("transform", "translate(0," + heightForLineChart2 + ")")
+                .call(xAxis2);
+
+            var contextArea = d3.area()
+                .curve(d3.curveMonotoneX)
+                .x(function(d) { return xScale2(d.date); })
+                .y0(heightForLineChart2)
+                .y1(0);
+
+            context.append("path")
+                .attr("class", "area")
+                .attr("d", contextArea(categories[0].values))
+                .attr("fill", "#F1F1F2");
+
+            brushElements = context.append("g")
+                .attr("class", "x brush")
+                .call(brush)
+                .selectAll("rect")
+                .attr("height", heightForLineChart2)
+                .attr("fill", "#E6E7E8");
+
+            // overlay = brushElements.select("rect.overlay")
+            //     .attr("width", widthForLineChart)
+
+            // selected = brushElements.select("rect.selection")
+            //     .attr("height", 40)
+
+
+            view2.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + heightForLineChart + ")")
+                .call(xAxis);
+
+            view2.append("g")
+                .attr("class", "y axis")
+                .call(yAxis)
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("x", -10)
+                .attr("dy", ".71em")
+                .style("text-anchor", "end")
+
+            var issue = view2.selectAll(".issue")
+                .data(categories)
+                .join("g")
+                .attr("class", "issue");
+
+            issue.append("path")
+                .attr("class", "line")
+                .style("pointer-events", "none")
+                .attr("id", function(d) {
+                    return "line-" + d.name.replace(" ", "").replace(".","");
+                })
+                .attr("d", function(d) {
+                    if (d.name == "PM2.5"){
+                        return PMChosen ? lineGenerator(d.values) : null;
+                    }else if(d.name == "SO2"){
+                        return SO2Chosen ? lineGenerator(d.values) : null;
+                    }else{
+                        return NO2Chosen ? lineGenerator(d.values) : null;
+                    }
+                })
+                .attr("clip-path", "url(#clip)")
+                .style("stroke", function(d) { return color(d.name); })
+                .style("fill", "none");
+
+
+            var legendSpace = 100 / categories.length;
+
+            issue.append("rect")
+                .attr("width", 10)
+                .attr("height", 10)
+                .attr("x", widthForLineChart + (marginForLineChart.right/3))
+                .attr("y", function (d, i) { return (legendSpace)+i*(legendSpace) - 8; })
+                .attr("fill",function(d) {
+                    if (d.name == "PM2.5"){
+                        return PMChosen ? color(d.name) : "#F1F1F2";
+                    }else if(d.name == "SO2"){
+                        return SO2Chosen ? color(d.name) : "#F1F1F2";
+                    }else{
+                        return NO2Chosen ? color(d.name) : "#F1F1F2";
+                    }
+                })
+                .attr("class", "legend-box")
+
+                .on("click", function(event, d){
+                    if (d.name == "PM2.5"){
+                        closureForPM(!PMChosen)
+                    }else if(d.name == "SO2"){
+                        closureForSO2(!SO2Chosen)
+                    }else{
+                        closureForNO2(!NO2Chosen)
+                    }
+                    maxY = findMaxY(categories);
+                    if (maxY==null){
+                        yScale.domain([0, 100]);
+                    }
+                    else{
+                        yScale.domain([0,maxY]);
+                    }
+                    view2.select(".y.axis")
+                        .transition()
+                        .call(yAxis);
+
+                    issue.select("path")
+                        .transition()
+                        .attr("d", function(d){
+                            if (d.name == "PM2.5"){
+                                return PMChosen ? lineGenerator(d.values) : null;
+                            }else if(d.name == "SO2"){
+                                return SO2Chosen ? lineGenerator(d.values) : null;
+                            }else{
+                                return NO2Chosen ? lineGenerator(d.values) : null;
+                            }
+                        })
+
+                    issue.select("rect")
+                        .transition()
+                        .attr("fill", function(d) {
+                            if (d.name == "PM2.5"){
+                                return PMChosen ? color(d.name) : "#F1F1F2";
+                            }else if(d.name == "SO2"){
+                                return SO2Chosen ? color(d.name) : "#F1F1F2";
+                            }else{
+                                return NO2Chosen ? color(d.name) : "#F1F1F2";
+                            }
+                        });
+                })
+
+                .on("mouseover", function(event, d){
+
+                    d3.select(this)
+                        .transition()
+                        .attr("fill", function(d) { return color(d.name); });
+
+                    d3.select("#line-" + d.name.replace(" ", "").replace(".", ""))
+                        .transition()
+                        .style("stroke-width", 2.5);
+                })
+
+                .on("mouseout", function(event, d){
+
+                    d3.select(this)
+                        .transition()
+                        .attr("fill", function(d) {
+                            if (d.name == "PM2.5"){
+                                return PMChosen ? color(d.name) : "#F1F1F2";
+                            }else if(d.name == "SO2"){
+                                return SO2Chosen ? color(d.name) : "#F1F1F2";
+                            }else{
+                                return NO2Chosen ? color(d.name) : "#F1F1F2";
+                            }}
+                            );
+
+                    d3.select("#line-" + d.name.replace(" ", "").replace(".", ""))
+                        .transition()
+                        .style("stroke-width", 1.5);
+                })
+
+            issue.append("text")
+                .attr("x", widthForLineChart + (marginForLineChart.right/3)+15)
+                .attr("y", function (d, i) { return (legendSpace)+i*(legendSpace); })
+                .text(function(d) { return d.name + "(μg/m^3)"; });
+
+            // Hover line
+            var hoverLineGroup = view2.append("g")
+                .attr("class", "hover-line");
+
+            var hoverLine = hoverLineGroup
+                .append("line")
+                .attr("id", "hover-line")
+                .attr("x1", 10).attr("x2", 10)
+                .attr("y1", 0).attr("y2", heightForLineChart + 10)
+                .style("pointer-events", "none")
+                .style("opacity", 1e-6);
+
+            var hoverDate = hoverLineGroup
+                .append('text')
+                .attr("class", "hover-text")
+                .attr("y", 40)
+                .attr("x", widthForLineChart - 150)
+                .style("fill", "#E6E7E8");
+
+            var columnNames = ["PM2.5","SO2","NO2"];
+
+            var focus = issue.select("g")
+                .data(columnNames)
+                .join("g")
+                .attr("class", "focus");
+
+            focus.append("text")
+                .attr("class", "tooltip")
+                .attr("x", widthForLineChart + 15)
+                .attr("y", function (d, i) { return (legendSpace)+i*(legendSpace); });
+
+
+            d3.select("#mouse-tracker")
+                .on("mousemove", mousemove)
+                .on("mouseout", function() {
+                    hoverDate
+                        .text(null)
+
+                    d3.select("#hover-line")
+                        .style("opacity", 1e-6);
+                });
+
+            function mousemove(event) {
+                var mouse_x = d3.pointer(event)[0];
+                var graph_x = xScale.invert(mouse_x);
+
+                var format = d3.timeFormat('%b %Y');
+
+                hoverDate.text(format(graph_x));
+
+                d3.select("#hover-line")
+                    .attr("x1", mouse_x)
+                    .attr("x2", mouse_x)
+                    .style("opacity", 1);
+
+
+                var x0 = xScale.invert(d3.pointer(event)[0]),
+                    i = bisectDate(data, x0, 1),
+                    d0 = data[i - 1],
+                    d1 = data[i],
+
+                    d = x0 - d0.date > d1.date - x0 ? d1 : d0;
+
+                focus.select("text").text(function(columnName){
+
+                    return (d[columnName]);
+                });
+            };
+
+            function brushed(event) {
+                extent = event.selection
+                if(extent === null){
+                    xScale.domain(xScale2.domain())
+                }
+                else{
+                    xScale.domain([ xScale2.invert(extent[0]), xScale2.invert(extent[1]) ])
+                }
+
+                view2.select(".x.axis")
+                    .transition()
+                    .call(xAxis);
+
+                maxY = findMaxY(categories);
+                if (maxY==null){
+                    yScale.domain([0, 100]);
+                }
+                else{
+                    yScale.domain([0,maxY]);
+                }
+                view2.select(".y.axis")
+                    .transition()
+                    .call(yAxis);
+
+                issue.select("path")
+                    .transition()
+                    .attr("d", function(d){
+                        if (d.name == "PM2.5"){
+                                return PMChosen ? lineGenerator(d.values) : null;
+                            }else if(d.name == "SO2"){
+                                return SO2Chosen ? lineGenerator(d.values) : null;
+                            }else{
+                                return NO2Chosen ? lineGenerator(d.values) : null;
+                            }
+                    });
+
+            };
+
+        });
+        }
+
+        function findMaxY(data){
+            var maxYValues = data.map(function(d) {
+                if (d.name == "PM2.5"){
+                    if (PMChosen){
+                    return d3.max(d.values, function(value) {
+                        return value.rating; })
+                    }   
+                }else if(d.name == "SO2"){
+                    if (SO2Chosen){
+                    return d3.max(d.values, function(value) {
+                        return value.rating; })
+                    }
+                }else{
+                    if (NO2Chosen){
+                    return d3.max(d.values, function(value) {
+                        return value.rating; })
+                    }
+                }
+            });
+            return d3.max(maxYValues);
+        }
+
+
+
+
+
+
+
+
+        // 第三个视图
+        // console.log(pollution)
+
+        // set the dimensions and margins of the graph
+        var marginForBarChart = {top: 10, right: 30, bottom: 20, left: 50},
+            widthForBarChart = 800 - marginForBarChart.left - marginForBarChart.right,
+            heightForBarChart = 350 - marginForBarChart.top - marginForBarChart.bottom;
+        getBarChart()
+        function getBarChart(name="全国"){
+            // domesticData = {}
+            d3.json("/yearlyData.json").then(function(data){
+                mydata = data[name]
+                var dataKeys = Object.keys(mydata),
+                    dataValues = Object.values(mydata);
+
+                for(var i=0;i<dataValues.length;i++){
+                    dataValues[i]["date"]=dataKeys[i]
+                }
+                // console.log(dataValues)
+                // append the third view to the body of the page
+                var view3 = d3.select("#mySvg")
+                    .append("g")
+                    .attr("id","barchart")
+                    .attr("width", 700)
+                    .attr("height", 320)
+                    .attr("transform","translate(600,45)");
+                // Parse the Data
+                // List of subgroups = header of the csv files = soil condition here
+                var groups = ["2013","2014","2015","2016","2017","2018"]
+                
+                // List of groups = species here = value of the first column called group -> I show them on the X axis
+                var subgroups = ["PM2.5","SO2","NO2"]
+
+
+                // Add X axis
+                const x = d3.scaleBand()
+                    .domain(groups)
+                    .range([0, widthForBarChart])
+                    .padding([0.2])
+                view3.append("g")
+                    .attr("transform", `translate(0, ${heightForBarChart})`)
+                    .call(d3.axisBottom(x).tickSize(0));
+
+                // Add Y axis
+                function getMax(data){
+                    var tempMax = data.map(function(datum){
+                        return d3.max(Object.values(datum).slice(0,3))
+                    })
+                    return d3.max(tempMax)
+                }
+                maxi = getMax(dataValues)+10
+                // console.log(maxi)
+                const y = d3.scaleLinear()
+                    .domain([0, maxi])
+                    .range([ heightForBarChart, 0 ]);
+                view3.append("g")
+                .call(d3.axisLeft(y));
+
+                // Another scale for subgroup position?
+                const xSubgroup = d3.scaleBand()
+                    .domain(subgroups)
+                    .range([0, x.bandwidth()])
+                    .padding([0.05])
+
+                // color palette = one color per subgroup
+                const colorForBarChart = d3.scaleOrdinal()
+                    .domain(subgroups)
+                    .range(["#48A36D","#7EC4CF", "#F2DE8A"])
+
+
+                // Show the bars
+                view3.append("g")
+                    .selectAll("g")
+                    // Enter in data = loop group per group
+                    .data(dataValues)
+                    .join("g")
+                    // .attr("class", mydata.keys()[0])
+                    .attr("transform", function (d) {
+                        // console.log(d)
+                        return `translate(${x(d.date)}, 0)`} )
+                    .selectAll("rect")
+                    .data(function(d) { return subgroups.map(function(key) { return {key: key, value: d[key]}; }); })
+                    .join("rect")
+                    .attr("x", d => xSubgroup(d.key))
+                    .attr("y", d => y(d.value))
+                    .attr("width", xSubgroup.bandwidth())
+                    .attr("height", d => heightForBarChart - y(d.value))
+                    .attr("fill", d => colorForBarChart(d.key))
+                    .append("title")
+                    .text(d => d.value);
+                
+                legend2 = view3.append("g")
+                .attr("id","legend2")
+                .selectAll("g")
+                .data(polList)
+                .join("g")
+
+                legend2.append("rect")
+                .attr("width", 10)
+                .attr("height", 10)
+                .attr("x", 670)
+                .attr("y", function (d, i) { return (33.33)+i*(33.33) - 50; })
+                .attr("fill", function(d){
+                    if (d=="PM2.5"){return "#48A36D"}
+                    else if(d=="SO2"){return "#7EC4CF"}
+                    else{return "#F2DE8A"}
+                })
+
+                legend2.append("text")
+                .attr("x", 685)
+                .attr("y", function (d, i) { return (33.33)+i*(33.33) - 42; })
+                .text(function(d) { return d + "(μg/m^3)"; })
+                })
+            }
+        
+    </script>
+
+</body>
+
